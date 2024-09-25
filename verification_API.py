@@ -1,10 +1,11 @@
 from flask import Flask, request, jsonify
 from selenium import webdriver
+import json
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.ui import Select
-
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import requests
@@ -12,7 +13,8 @@ import requests
 app = Flask(__name__)
 
 chrome_options = Options()
-# chrome_options.add_argument("--headless")  # Uncomment if you want headless mode
+# chrome_options.add_argument("--headless")  
+# Uncomment if you want headless mode
 
 def solve_image_to_text(api_key, img_base64):
     url = "https://api.capsolver.com/createTask"
@@ -32,25 +34,33 @@ def solve_image_to_text(api_key, img_base64):
     else:
         return f"Error: {result.get('errorDescription', 'Unknown error')}"
 
-
-# Function to extract table data
-def extract_table_data(table_element):
-    data = {}
-    rows = table_element.find_elements(By.CSS_SELECTOR, "tbody tr")
+# Function to extract data from table
+def extract_table_data(table):
+    rows = table.find_elements(By.TAG_NAME, 'tr')
+    table_data = {}
     for row in rows:
-        cols = row.find_elements(By.CSS_SELECTOR, "td")
-        if len(cols) >= 2:
-            data[cols[0].text.strip()] = cols[1].text.strip()
-    return data
-
+        cells = row.find_elements(By.TAG_NAME, 'td')
+        if len(cells) == 2:
+            key = cells[0].text.strip()
+            value = cells[1].text.strip()
+            table_data[key] = value
+    return table_data
 
 @app.route('/get_license_details', methods=['POST'])
 def get_license_details():
-    # Initialize WebDriver inside the route
-    driver = webdriver.Chrome(options=chrome_options)
     
+    # Specify the path to your ChromeDriver
+    chrome_driver_path = "/home/dhruvil/dl verification/chromedriver-linux64/chromedriver"
+
+    # Use Service() to pass the chromedriver path
+    service = Service(executable_path=chrome_driver_path)
+
+    # Initialize the WebDriver with Service object and options
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
     # Open the website
     driver.get("https://parivahan.gov.in/rcdlstatus/?pur_cd=101")
+    
     # Fill in the form
     dl_number = request.json.get('dl_number')
     dob = request.json.get('dob')
@@ -59,37 +69,36 @@ def get_license_details():
         return jsonify({"error": "Missing dl_number or dob"}), 400
 
     driver.find_element(By.XPATH, "//*[@id='form_rcdl:tf_dlNO']").send_keys(dl_number)
-    print("hello")
+    
     # Split the date string into day, month, and year
     day, month, year = dob.split('-')
 
+    dob_element = driver.find_element(By.XPATH, "//*[@id='form_rcdl:tf_dob_input']")
+    dob_element.click()
 
-    dob= driver.find_element(By.XPATH,"//*[@id='form_rcdl:tf_dob_input']")
-    dob.click()
     # Locate the year dropdown element using the 'By' class and select the year
     dropdown_year = driver.find_element(By.CLASS_NAME, "ui-datepicker-year")
     select_year = Select(dropdown_year)
-    select_year.select_by_visible_text(year)  # e.g., '1997'
+    select_year.select_by_visible_text(year)
 
     # Locate the month dropdown element using the 'By' class and select the month
     dropdown_month = driver.find_element(By.CLASS_NAME, "ui-datepicker-month")
     select_month = Select(dropdown_month)
-    select_month.select_by_index(int(month) - 1)  # Month index is zero-based (e.g., '10' becomes 9 for October)
+    select_month.select_by_index(int(month) - 1)
 
     # Select the day by using an XPath that matches the day
     day_element = driver.find_element(By.XPATH, f"//a[text()='{int(day)}']")
     day_element.click()
-
-    # time.sleep(5)
-    # cap_box = driver.find_element(By.XPATH, "//*[@id='form_rcdl:j_idt32:CaptchaID']")
-    # cap_box.click()
-    # Handle CAPTCHA
-
-    cap_box = driver.find_element(By.XPATH, "//*[@id='form_rcdl:j_idt32:CaptchaID']")
+    print("cheakpoint-1")
+    cap_box = driver.find_element(By.XPATH, "/html/body/form/div[1]/div[3]/div[1]/div/div[2]/div[3]/div/div[2]/div/div[2]/table/tbody/tr/td[3]/input")
     cap_box.send_keys("")
+    print("cheakpoint-2")
+
     time.sleep(1)
 
-    image_element = driver.find_element(By.ID, "form_rcdl:j_idt32:j_idt37")
+    image_element = driver.find_element(By.XPATH, "//*[@id='form_rcdl:j_idt31:j_idt36']")
+    print("cheakpoint-3")
+
     base64_string = driver.execute_script("""
         var img = arguments[0];
         var canvas = document.createElement('canvas');
@@ -102,56 +111,61 @@ def get_license_details():
 
     api_key = "CAP-530C35F199B497178333950FEE0CBE6B"  # Replace with your Capsolver API key
     solved_text = solve_image_to_text(api_key, base64_string)
-    print("hello1")
-    cap_box = driver.find_element(By.XPATH, "//*[@id='form_rcdl:j_idt32:CaptchaID']")
-    print("hello2",solved_text)
-    cap_box.send_keys(solved_text)
     
-    print("hello3")
-    get_detail= driver.find_element(By.XPATH,"//*[@id='form_rcdl:j_idt43']/span")
-    print("hello4")
+    cap_box = driver.find_element(By.XPATH, "/html/body/form/div[1]/div[3]/div[1]/div/div[2]/div[3]/div/div[2]/div/div[2]/table/tbody/tr/td[3]/input")
+    cap_box.send_keys(solved_text)
+    print("cheack box4")
+    get_detail = driver.find_element(By.XPATH, "/html/body/form/div[1]/div[3]/div[1]/div/div[2]/div[4]/div/button[1]/span")
     get_detail.click()
     time.sleep(1)
-    # Close the driver once done
-    # driver.quit()
-    # Extract data (same as before)
-    details_of_driving_license = extract_table_data(driver.find_element(By.XPATH, "//div[contains(text(), 'Details Of Driving License:')]/following-sibling::table"))
-    initial_details = extract_table_data(driver.find_element(By.XPATH, "//div[contains(text(), 'Driving License Initial Details')]/following-sibling::table"))
-    endorsed_details = extract_table_data(driver.find_element(By.XPATH, "//div[contains(text(), 'Driving License Endorsed Details')]/following-sibling::table"))
 
-    validity_details = {}
-    validity_details_tables = driver.find_elements(By.XPATH, "//div[contains(text(), 'Driving License Validity Details')]/following-sibling::table")
-    for table in validity_details_tables:
-        for row in table.find_elements(By.CSS_SELECTOR, "tbody tr"):
-            cols = row.find_elements(By.CSS_SELECTOR, "td")
-            if len(cols) >= 3:
-                validity_details[cols[0].text.strip()] = {
-                    "From": cols[1].text.strip(),
-                    "To": cols[2].text.strip()
-                }
+    data = {}
+    print("cheack box5")
 
-    class_of_vehicle_details = []
-    class_table = driver.find_element(By.ID, "form_rcdl:j_idt133")
-    rows = class_table.find_elements(By.CSS_SELECTOR, "tbody tr")
+        # Extract details from the "Details Of Driving License" section
+    details_of_driving_license = driver.find_element(By.XPATH, "/html/body/form/div[1]/div[3]/div[1]/div/div[2]/div[4]/span/div/div/div/div/div/table[1]")
+    data['Details Of Driving License'] = extract_table_data(details_of_driving_license)
+    print("cheack box6")
+
+    # Extract details from the "Driving License Initial Details" section
+    initial_details = driver.find_element(By.XPATH, "//div[contains(text(),'Driving License Initial Details')]/following-sibling::table")
+    data['Driving License Initial Details'] = extract_table_data(initial_details)
+    print("cheack box7")
+
+    # Extract details from the "Driving License Endorsed Details" section
+    endorsed_details = driver.find_element(By.XPATH, "//div[contains(text(),'Driving License Endorsed Details')]/following-sibling::table")
+    data['Driving License Endorsed Details'] = extract_table_data(endorsed_details)
+    print("cheack box8")
+
+    # Extract details from the "Driving License Validity Details" section
+    validity_details = driver.find_element(By.XPATH, "//div[contains(text(),'Driving License Validity Details')]/following-sibling::table")
+    data['Driving License Validity Details'] = extract_table_data(validity_details)
+    print("cheack box9")
+
+    # Extract details from the "Class Of Vehicle Details" section
+    class_of_vehicle_details = driver.find_element(By.XPATH, "/html/body/form/div[1]/div[3]/div[1]/div/div[2]/div[4]/span/div/div/div/div/div/table[4]")
+    rows = class_of_vehicle_details.find_elements(By.TAG_NAME, 'tr')
+    print("cheack box10")
+
+    class_of_vehicle_data = []
     for row in rows:
-        cols = row.find_elements(By.CSS_SELECTOR, "td")
-        if len(cols) >= 3:
-            class_of_vehicle_details.append({
-                "COV Category": cols[0].text.strip(),
-                "Class Of Vehicle": cols[1].text.strip(),
-                "COV Issue Date": cols[2].text.strip()
+        cells = row.find_elements(By.TAG_NAME, 'td')
+        if len(cells) == 3:
+            class_of_vehicle_data.append({
+                'COV Category': cells[0].text.strip(),
+                'Class Of Vehicle': cells[1].text.strip(),
+                'COV Issue Date': cells[2].text.strip()
             })
+    data['Class Of Vehicle Details'] = class_of_vehicle_data
 
-    data = {
-        "Details Of Driving License": details_of_driving_license,
-        "Driving License Initial Details": initial_details,
-        "Driving License Endorsed Details": endorsed_details,
-        "Driving License Validity Details": validity_details,
-        "Class Of Vehicle Details": class_of_vehicle_details
-    }
+    # Convert the extracted data to JSON format
+    json_data = json.dumps(data, indent=4)
+
+    # Print or save the JSON data
+    print(json_data)
+    return json_data
     driver.quit()
 
-    return jsonify(data)
 
 if __name__ == '__main__':
     # Run Flask on port 8000 with debug mode enabled
